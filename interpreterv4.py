@@ -2,9 +2,9 @@ import copy
 from enum import Enum
 
 from brewparse import parse_program
-from env_v3 import EnvironmentManager
+from env_v4 import EnvironmentManager
 from intbase import InterpreterBase, ErrorType
-from type_valuev3 import Closure, Type, Value, create_value, get_printable
+from type_valuev4 import Object, Closure, Type, Value, create_value, get_printable
 
 
 class ExecStatus(Enum):
@@ -214,6 +214,8 @@ class Interpreter(InterpreterBase):
             return self.__eval_unary(expr_ast, Type.BOOL, lambda x: not x)
         if expr_ast.elem_type == Interpreter.LAMBDA_DEF:
             return Value(Type.CLOSURE, Closure(expr_ast, self.env))
+        if expr_ast.elem_type == Interpreter.OBJ_DEF:
+            return Value(Type.OBJECT, Object(self.env))
 
     def __eval_name(self, name_ast):
         var_name = name_ast.get("name")

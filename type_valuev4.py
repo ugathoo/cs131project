@@ -10,7 +10,8 @@ class Type(Enum):
     BOOL = 2
     STRING = 3
     CLOSURE = 4
-    NIL = 5
+    OBJECT = 5
+    NIL = 6
 
 
 class Closure:
@@ -18,6 +19,30 @@ class Closure:
         self.captured_env = copy.deepcopy(env)
         self.func_ast = func_ast
         self.type = Type.CLOSURE
+
+class Object:
+    def __init__(self, env):
+        self.env = env
+        self.fields = {}
+        self.methods = {}
+        self.proto = InterpreterBase.NIL_DEF
+        self.type = Type.OBJECT
+
+    def get_field(self, field_name):
+        if field_name in self.fields:
+            return self.fields[field_name]
+        return None
+    
+    def set_field(self, field_name, value):
+        self.fields[field_name] = value
+
+    def get_method(self, method_name, num_args):
+        if method_name in self.methods:
+            if num_args in self.methods[method_name]:
+                return self.methods[method_name][num_args]
+            else:
+                return None
+        return None
 
 
 # Represents a value, which has a type and its value
