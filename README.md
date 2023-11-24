@@ -1,45 +1,7 @@
-<!-----
-
-Yay, no errors, warnings, or alerts!
-
-Conversion time: 1.895 seconds.
+# Project #4: Brewin# Interpreter - CS131 Fall 2023
 
 
-Using this Markdown file:
-
-1. Paste this output into your source file.
-2. See the notes and action items below regarding this conversion run.
-3. Check the rendered output (headings, lists, code blocks, tables) for proper
-   formatting and use a linkchecker before you publish this page.
-
-Conversion notes:
-
-* Docs to Markdown version 1.0β34
-* Mon Nov 20 2023 16:36:43 GMT-0800 (PST)
-* Source doc: Copy of CS131 Fall 23 Project #4
-* Tables are currently converted to HTML tables.
-
-WARNING:
-You have 12 H1 headings. You may want to use the "H1 -> H2" option to demote all headings by one level.
-
------>
-
-
-<p style="color: red; font-weight: bold">>>>>>  gd2md-html alert:  ERRORs: 0; WARNINGs: 1; ALERTS: 0.</p>
-<ul style="color: red; font-weight: bold"><li>See top comment block for details on ERRORs and WARNINGs. <li>In the converted Markdown or HTML, search for inline alerts that start with >>>>>  gd2md-html alert:  for specific instances that need correction.</ul>
-
-<p style="color: red; font-weight: bold">Links to alert messages:</p>
-<p style="color: red; font-weight: bold">>>>>> PLEASE check and correct alert issues and delete this message and the inline alerts.<hr></p>
-
-
-
-# Project #4: Brewin# Interpreter
-
-
-# CS131 Fall 2023
-
-
-# Due date: 12/03/23, 11:59pm
+Due date: 12/03/23, 11:59pm
 
 Warning: Expect project #4 to take 10-20 hours of time - it's about the same amount of work as project #3! 
 
