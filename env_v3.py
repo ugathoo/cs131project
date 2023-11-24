@@ -12,7 +12,11 @@ class EnvironmentManager:
 
         return None
 
-    def set(self, symbol, value):
+    def set(self, symbol, value, force_new_var_creation=False):
+        if force_new_var_creation:
+            self.environment[-1][symbol] = value
+            return
+
         for env in reversed(self.environment):
             if symbol in env:
                 env[symbol] = value
@@ -27,9 +31,24 @@ class EnvironmentManager:
         self.environment[-1][symbol] = value
 
     # used when we enter a nested block to create a new environment for that block
-    def push(self, dict_append={}):
-        self.environment.append(dict_append)  # [{}] -> [{}, {}]
+    def push(self, env = None):
+        if env is None:
+            self.environment.append({})  # [{}] -> [{}, {}]
+        else:
+            self.environment.append(env)
 
     # used when we exit a nested block to discard the environment for that block
     def pop(self):
         self.environment.pop()
+
+    def __enumerate(self):
+        captured_so_far = set()
+        for captured in reversed(self.environment):
+            for var_name, value in captured.items():
+                if var_name in captured_so_far:
+                    continue
+                captured_so_far.add(var_name)
+                yield (var_name, value)
+
+    def __iter__(self):
+        return self.__enumerate()
