@@ -31,7 +31,7 @@ class Object:
     def get_field(self, field_name):
         if field_name in self.fields:
             return self.fields[field_name]
-        return None
+        return self.check_proto_field(field_name, self.proto)
     
     def set_field(self, field_name, value):
         self.fields[field_name] = value
@@ -39,11 +39,32 @@ class Object:
     def get_method(self, method_name, num_args):
         if method_name in self.methods:
             if num_args in self.methods[method_name]:
-                return self.methods[method_name][num_args]
+                return self.methods[method_name][num_args] # returns a closure
             else:
-                return None
-        return None
+                return self.check_proto_method(method_name, num_args, self.proto)
+        return self.check_proto_method(method_name, num_args, self.proto)
+    
+    def set_method(self, method_name, num_args, value):
+        if method_name not in self.methods:
+            self.methods[method_name] = {}
+        self.methods[method_name][num_args] = value    
 
+    def get_proto(self):
+        return self.proto
+    
+    def set_proto(self, proto):
+        self.proto = proto
+
+    def check_proto_method(self, method_name, num_args, proto):
+        if proto == InterpreterBase.NIL_DEF:
+            return None
+        return proto.get_method(method_name, num_args)
+    
+    def check_proto_field(self, field_name, proto):
+        proto = proto.value()
+        if proto == InterpreterBase.NIL_DEF:
+            return None
+        return proto.get_field(field_name)
 
 # Represents a value, which has a type and its value
 class Value:
