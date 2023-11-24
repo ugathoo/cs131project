@@ -34,7 +34,7 @@ class Interpreter(InterpreterBase):
         self.env = EnvironmentManager()
         main_func = self.__get_func_by_name("main", 0)
         if main_func is None:
-            super().error(ErrorType.NAME_ERROR, f"Function {name} not found")
+            super().error(ErrorType.NAME_ERROR, f"Function main not found")
         self.__run_statements(main_func.func_ast.get("statements"))
 
     def __set_up_function_table(self, ast):
@@ -116,7 +116,7 @@ class Interpreter(InterpreterBase):
         if func_name == "inputi":
             return self.__call_input(call_ast)
         if func_name == "inputs":
-            return self.__call_input(call_node)
+            return self.__call_input(call_ast)
 
         actual_args = call_ast.get("args")
         target_closure = self.__get_func_by_name(func_name, len(actual_args))
