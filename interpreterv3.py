@@ -4,8 +4,7 @@ from enum import Enum
 from brewparse import parse_program
 from env_v3 import EnvironmentManager
 from intbase import InterpreterBase, ErrorType
-from element import Element
-from type_valuev3 import Type, Value, LambdaFunc, create_value, get_printable
+from type_valuev3 import Closure, Type, Value, create_value, get_printable
 
 
 class ExecStatus(Enum):
@@ -34,26 +33,50 @@ class Interpreter(InterpreterBase):
         self.__set_up_function_table(ast)
         self.env = EnvironmentManager()
         main_func = self.__get_func_by_name("main", 0)
-        self.__run_statements(main_func.get("statements"))
+        if main_func is None:
+            super().error(ErrorType.NAME_ERROR, f"Function {name} not found")
+        self.__run_statements(main_func.func_ast.get("statements"))
 
     def __set_up_function_table(self, ast):
         self.func_name_to_ast = {}
+        empty_env = EnvironmentManager()
         for func_def in ast.get("functions"):
             func_name = func_def.get("name")
             num_params = len(func_def.get("args"))
             if func_name not in self.func_name_to_ast:
                 self.func_name_to_ast[func_name] = {}
-            self.func_name_to_ast[func_name][num_params] = func_def
+            self.func_name_to_ast[func_name][num_params] = Closure(func_def, empty_env)
 
     def __get_func_by_name(self, name, num_params):
         if name not in self.func_name_to_ast:
-            for enviro in reversed(self.env.environment):
-                if enviro.get(name) is not None:
-                    #ITS A LAMBDA
-                    return enviro.get("name")
-            
-            super().error(ErrorType.NAME_ERROR, f"Function {name} not found")
+            closure_val_obj = self.env.get(name)
+            if closure_val_obj is None:
+                return None
+                # super().error(ErrorType.NAME_ERROR, f"Function {name} not found")
+            if closure_val_obj.type() != Type.CLOSURE:
+                super().error(
+                    ErrorType.TYPE_ERROR, "Trying to call function with non-closure"
+                )
+            closure = closure_val_obj.value()
+            num_formal_params = len(closure.func_ast.get("args"))
+            if num_formal_params != num_params:
+                super().error(ErrorType.TYPE_ERROR, "Invalid # of args to lambda")
+            return closure_val_obj.value()
+
         candidate_funcs = self.func_name_to_ast[name]
+        if num_params is None:
+            # case where we want assign variable to func_name and we don't have
+            # a way to specify the # of arguments for the function, so we generate
+            # an error if there's more than one function with that name
+            if len(candidate_funcs) > 1:
+                super().error(
+                    ErrorType.NAME_ERROR,
+                    f"Function {name} has multiple overloaded versions",
+                )
+            num_args = next(iter(candidate_funcs))
+            closure = candidate_funcs[num_args]
+            return closure
+
         if num_params not in candidate_funcs:
             super().error(
                 ErrorType.NAME_ERROR,
@@ -77,8 +100,7 @@ class Interpreter(InterpreterBase):
                 status, return_val = self.__do_if(statement)
             elif statement.elem_type == Interpreter.WHILE_DEF:
                 status, return_val = self.__do_while(statement)
-            elif statement.elem_type == InterpreterBase.LAMBDA_DEF:
-                status, return_val = self.__call_func(statement)
+
             if status == ExecStatus.RETURN:
                 self.env.pop()
                 return (status, return_val)
@@ -86,69 +108,55 @@ class Interpreter(InterpreterBase):
         self.env.pop()
         return (ExecStatus.CONTINUE, Interpreter.NIL_VALUE)
 
-    def __call_func(self, call_node):
-        is_lambda = False
-        func_name = call_node.get("name")
-        
+
+    def __call_func(self, call_ast):
+        func_name = call_ast.get("name")
         if func_name == "print":
-            return self.__call_print(call_node)
+            return self.__call_print(call_ast)
         if func_name == "inputi":
-            return self.__call_input(call_node)
+            return self.__call_input(call_ast)
         if func_name == "inputs":
             return self.__call_input(call_node)
 
-        actual_args = call_node.get("args")
-        ###LAMBDA IMPLEMENTATION################
-        for enviro in reversed(self.env.environment):
-            if enviro.get(func_name) != None:
-                value_of_obj = enviro.get(func_name)
-                if isinstance(value_of_obj, Element) or value_of_obj.type() == Type.LAMBDA:
-                   
-                    #print(value_of_obj.value().lambda_ast)
-                    is_lambda = True
-            
-        if not is_lambda:
-            func_ast = self.__get_func_by_name(func_name, len(actual_args))
-        else:
-            for enviro in reversed(self.env.environment):
-                if enviro.get(func_name) != None:
-                    func_ast = enviro.get(func_name).value().lambda_ast
-        ###LAMBDA IMPLEMENTATION################
+        actual_args = call_ast.get("args")
+        target_closure = self.__get_func_by_name(func_name, len(actual_args))
+        if target_closure == None:
+            super().error(ErrorType.NAME_ERROR, f"Function {func_name} not found")
+        if target_closure.type != Type.CLOSURE:
+            super().error(ErrorType.TYPE_ERROR, f"Function {func_name} is changed to non-function type.")
+        target_ast = target_closure.func_ast
 
-        formal_args = func_ast.get("args")
+        new_env = {}
+        self.__prepare_env_with_closed_variables(target_closure, new_env)
+        self.__prepare_params(target_ast,call_ast, new_env)
+        self.env.push(new_env)
+        _, return_val = self.__run_statements(target_ast.get("statements"))
+        self.env.pop()
+        return return_val
+
+    def __prepare_env_with_closed_variables(self, target_closure, temp_env):
+        for var_name, value in target_closure.captured_env:
+            # Updated here - ignore updates to the scope if we
+            #   altered a parameter, or if the argument is a similarly named variable
+            temp_env[var_name] = value
+
+
+    def __prepare_params(self, target_ast, call_ast, temp_env):
+        actual_args = call_ast.get("args")
+        formal_args = target_ast.get("args")
         if len(actual_args) != len(formal_args):
             super().error(
-                ErrorType.TYPE_ERROR,
-                f"Function {func_ast.get('name')} with {len(actual_args)} args not found",
+                ErrorType.NAME_ERROR,
+                f"Function {target_ast.get('name')} with {len(actual_args)} args not found",
             )
-        
-        if is_lambda:
-            ennv = (self.env.get(func_name).value()).lambda_env
-            self.env.push(dict_append=ennv)
-        else:
-            self.env.push()
-        all_refs_list = []
-        ref_to_val = {}
-        var_to_ref = {}
+
         for formal_ast, actual_ast in zip(formal_args, actual_args):
-            arg_name = formal_ast.get("name") #name of arg 
-            result = copy.deepcopy(self.__eval_expr(actual_ast))
-            if formal_ast.elem_type == "refarg":
-                var_to_ref[actual_ast.get("name")] = arg_name
-                all_refs_list.append(arg_name)
-
-            self.env.create(arg_name, result)
-        _, return_val = self.__run_statements(func_ast.get("statements"))
-
-        for refarg in all_refs_list:
-            ref_to_val[refarg] = self.env.get(refarg)
-
-        self.env.pop()
-        for var in var_to_ref.keys():
-            value = var_to_ref[var]
-            self.env.set(var, ref_to_val[value])
-
-        return return_val
+            if formal_ast.elem_type == InterpreterBase.REFARG_DEF:
+                result = self.__eval_expr(actual_ast)
+            else:
+                result = copy.deepcopy(self.__eval_expr(actual_ast))
+            arg_name = formal_ast.get("name")
+            temp_env[arg_name] = result
 
     def __call_print(self, call_ast):
         output = ""
@@ -175,27 +183,17 @@ class Interpreter(InterpreterBase):
 
     def __assign(self, assign_ast):
         var_name = assign_ast.get("name")
-        value_obj = self.__eval_expr(assign_ast.get("expression"), assign=True)
-        
-        #check if val obj is dict
-        if isinstance(value_obj, dict):
-            key1 = (list(value_obj.keys()))[0]
-            num_args = len(value_obj[key1].get("args"))
-            if len(self.func_name_to_ast[value_obj[key1].get("name")]) != 1:
-                    super().error(ErrorType.NAME_ERROR, "Overloaded function can't be assigned to a variable")
+        src_value_obj = copy.copy(self.__eval_expr(assign_ast.get("expression")))
+        target_value_obj = self.env.get(var_name)
+        if target_value_obj is None:
+            self.env.set(var_name, src_value_obj)
+        else:
+                        # if a close is changed to another type such as int, we cannot make function calls on it any more 
+            if target_value_obj.t == Type.CLOSURE and src_value_obj.t != Type.CLOSURE:
+                target_value_obj.v.type = src_value_obj.t
+            target_value_obj.set(src_value_obj)
 
-            #add var_name to func ast
-            self.func_name_to_ast[var_name] = {}
-            self.func_name_to_ast[var_name][num_args] = value_obj[key1]
-        
-        if isinstance(value_obj, LambdaFunc):
-            self.func_name_to_ast[var_name] = {}
-            num_args = len(value_obj.lambda_ast.get("args"))
-            self.func_name_to_ast[var_name][num_args] = Element("lambda", value_obj.lambda_ast)
-        
-        self.env.set(var_name, value_obj)
-
-    def __eval_expr(self, expr_ast, assign=False):
+    def __eval_expr(self, expr_ast):
         if expr_ast.elem_type == InterpreterBase.NIL_DEF:
             return Interpreter.NIL_VALUE
         if expr_ast.elem_type == InterpreterBase.INT_DEF:
@@ -205,20 +203,8 @@ class Interpreter(InterpreterBase):
         if expr_ast.elem_type == InterpreterBase.BOOL_DEF:
             return Value(Type.BOOL, expr_ast.get("val"))
         if expr_ast.elem_type == InterpreterBase.VAR_DEF:
-            var_name = expr_ast.get("name")
-            val = self.env.get(var_name)
-            if var_name in self.func_name_to_ast.keys():
-                if len(self.func_name_to_ast[var_name]) != 1:
-                    super().error(ErrorType.NAME_ERROR, "Overloaded function can't be assigned to a variable")
-
-                val = self.func_name_to_ast[var_name] #function def of var_name
-            
-            if val is None:
-                super().error(ErrorType.NAME_ERROR, f"Variable {var_name} not found")
-            return val
+            return self.__eval_name(expr_ast)
         if expr_ast.elem_type == InterpreterBase.FCALL_DEF:
-            if assign:
-                return expr_ast
             return self.__call_func(expr_ast)
         if expr_ast.elem_type in Interpreter.BIN_OPS:
             return self.__eval_op(expr_ast)
@@ -226,54 +212,32 @@ class Interpreter(InterpreterBase):
             return self.__eval_unary(expr_ast, Type.INT, lambda x: -1 * x)
         if expr_ast.elem_type == Interpreter.NOT_DEF:
             return self.__eval_unary(expr_ast, Type.BOOL, lambda x: not x)
-        
-        if expr_ast.elem_type == InterpreterBase.LAMBDA_DEF:
-            enviro = copy.deepcopy(self.env)
-            #curr_env = self.__flatten(enviro.environment)
-            #print(curr_env)
-            if assign:
-                return Value(Type.LAMBDA, LambdaFunc(enviro, expr_ast))
-            return self.__run_statements(expr_ast)
-            
+        if expr_ast.elem_type == Interpreter.LAMBDA_DEF:
+            return Value(Type.CLOSURE, Closure(expr_ast, self.env))
 
-    def __flatten(self, d, prefix=""):
-        res = {}
-        separator = "_"
-        for dictionary in d:
-            for key, value in dictionary.items():
-                if isinstance(value, dict):
-                    res.update(self.__flatten(value, key + separator))
-                else:
-                    res[prefix + key] = value
-        return res
+    def __eval_name(self, name_ast):
+        var_name = name_ast.get("name")
+        val = self.env.get(var_name)
+        if val is not None:
+            return val
+        closure = self.__get_func_by_name(var_name, None)
+        if closure is None:
+            super().error(
+                ErrorType.NAME_ERROR, f"Variable/function {var_name} not found"
+            )
+        return Value(Type.CLOSURE, closure)
+
+    
 
     def __eval_op(self, arith_ast):
         left_value_obj = self.__eval_expr(arith_ast.get("op1"))
         right_value_obj = self.__eval_expr(arith_ast.get("op2"))
 
-        #check for functions
-        if isinstance(left_value_obj, dict) and isinstance(right_value_obj, dict):
-            if arith_ast.elem_type == "==":
-                if (left_value_obj[0].get("name")) == (right_value_obj[0].get("name")) and len(left_value_obj[0].get("args")) == len(right_value_obj[0].get("args")):
-                    return Value(Type.BOOL, True)
-                else:
-                    return Value(Type.BOOL, False)
-            elif arith_ast.elem_type == "!=":
-                if (left_value_obj[0].get("name")) == (right_value_obj[0].get("name")) and len(left_value_obj[0].get("args")) == len(right_value_obj[0].get("args")):
-                    return Value(Type.BOOL, False)
-                else:
-                    return Value(Type.BOOL, True)
-            else:
-                super().error(ErrorType.TYPE_ERROR, f"Invalid function operation")
-        
-        elif (isinstance(left_value_obj, dict) and not isinstance(right_value_obj, dict)) or (not isinstance(left_value_obj, dict) and isinstance(right_value_obj, dict)):
-            if arith_ast.elem_type == "==":
-                return Value(Type.BOOL, False) 
-            elif arith_ast.elem_type == "!=":
-                return Value(Type.BOOL, True)
-            else:
-                super().error(ErrorType.TYPE_ERROR, f"Invalid function operation")
-        
+
+        left_value_obj, right_value_obj = self.__bin_op_promotion(
+            arith_ast.elem_type, left_value_obj, right_value_obj
+        )
+
         if not self.__compatible_types(
             arith_ast.elem_type, left_value_obj, right_value_obj
         ):
@@ -281,38 +245,58 @@ class Interpreter(InterpreterBase):
                 ErrorType.TYPE_ERROR,
                 f"Incompatible types for {arith_ast.elem_type} operation",
             )
-        
-
         if arith_ast.elem_type not in self.op_to_lambda[left_value_obj.type()]:
-            if arith_ast.elem_type not in self.op_to_lambda[right_value_obj.type()]:
-                super().error(
-                    ErrorType.TYPE_ERROR,
-                    f"Incompatible operator {arith_ast.elem_type} for type {left_value_obj.type()}",
-                )
-       
-        if arith_ast.elem_type in self.op_to_lambda[left_value_obj.type()]:
-            f = self.op_to_lambda[left_value_obj.type()][arith_ast.elem_type]
-        else:
-            f = self.op_to_lambda[right_value_obj.type()][arith_ast.elem_type]
-        
+            super().error(
+                ErrorType.TYPE_ERROR,
+                f"Incompatible operator {arith_ast.elem_type} for type {left_value_obj.type()}",
+            )
+        f = self.op_to_lambda[left_value_obj.type()][arith_ast.elem_type]
         return f(left_value_obj, right_value_obj)
+
+    # bool and int, int and bool for and/or/==/!= -> coerce int to bool
+    # bool and int, int and bool for arithmetic ops, coerce true to 1, false to 0
+    def __bin_op_promotion(self, operation, op1, op2):
+        if operation in self.op_to_lambda[Type.BOOL]:  # && or ||
+            
+            # If this operation is still allowed in the ints, then continue
+            if operation in self.op_to_lambda[Type.INT] and op1.type() == Type.INT \
+                and op2.type() == Type.INT:
+                pass
+            else:
+                if op1.type() == Type.INT:
+                    op1 = Interpreter.__int_to_bool(op1)
+                if op2.type() == Type.INT:
+                    op2 = Interpreter.__int_to_bool(op2)
+        if operation in self.op_to_lambda[Type.INT]:  # +, -, *, /
+            if op1.type() == Type.BOOL:
+                op1 = Interpreter.__bool_to_int(op1)
+            if op2.type() == Type.BOOL:
+                op2 = Interpreter.__bool_to_int(op2)
+        return (op1, op2)
+
+    def __unary_op_promotion(self, operation, op1):
+        if operation == "!" and op1.type() == Type.INT:
+            op1 = Interpreter.__int_to_bool(op1)
+        return op1
+
+    @staticmethod
+    def __int_to_bool(value):
+        return Value(Type.BOOL, value.value() != 0)
+
+    @staticmethod
+    def __bool_to_int(value):
+        return Value(Type.INT, 1 if value.value() else 0)
 
     def __compatible_types(self, oper, obj1, obj2):
         # DOCUMENT: allow comparisons ==/!= of anything against anything
         if oper in ["==", "!="]:
             return True
-        elif (obj1.type() == Type.BOOL and obj2.type() == Type.INT) or (obj2.type() == Type.BOOL and obj1.type() == Type.INT):
-            return True
         return obj1.type() == obj2.type()
 
     def __eval_unary(self, arith_ast, t, f):
         value_obj = self.__eval_expr(arith_ast.get("op1"))
-        if arith_ast.elem_type == "!" and value_obj.type() == Type.INT:
-            if value_obj.value() == 0:
-                value_obj = Value(Type.BOOL, True)
-            else:
-                value_obj = Value(Type.BOOL, False)
-        
+        value_obj = self.__unary_op_promotion(arith_ast.elem_type, value_obj)
+
         if value_obj.type() != t:
             super().error(
                 ErrorType.TYPE_ERROR,
@@ -325,22 +309,22 @@ class Interpreter(InterpreterBase):
         # set up operations on integers
         self.op_to_lambda[Type.INT] = {}
         self.op_to_lambda[Type.INT]["+"] = lambda x, y: Value(
-            self.__do_coerce_int(x).type(), self.__do_coerce_int(x).value() + self.__do_coerce_int(y).value()
+            x.type(), x.value() + y.value()
         )
         self.op_to_lambda[Type.INT]["-"] = lambda x, y: Value(
-            self.__do_coerce_int(x).type(), self.__do_coerce_int(x).value() - self.__do_coerce_int(y).value()
+            x.type(), x.value() - y.value()
         )
         self.op_to_lambda[Type.INT]["*"] = lambda x, y: Value(
-            self.__do_coerce_int(x).type(), self.__do_coerce_int(x).value() * self.__do_coerce_int(y).value()
+            x.type(), x.value() * y.value()
         )
         self.op_to_lambda[Type.INT]["/"] = lambda x, y: Value(
-            self.__do_coerce_int(x).type(), self.__do_coerce_int(x).value() // self.__do_coerce_int(y).value()
+            x.type(), x.value() // y.value()
         )
         self.op_to_lambda[Type.INT]["=="] = lambda x, y: Value(
-            Type.BOOL, self.__do_coerce_int_bool(y,x).type() == self.__do_coerce_int_bool(x,y).type() and self.__do_coerce_int_bool(y,x).value() == self.__do_coerce_int_bool(x,y).value()
+            Type.BOOL, x.value() == y.value()
         )
         self.op_to_lambda[Type.INT]["!="] = lambda x, y: Value(
-            Type.BOOL, self.__do_coerce_int_bool(y,x).type() != self.__do_coerce_int_bool(x,y).type() or self.__do_coerce_int_bool(y,x).value() != self.__do_coerce_int_bool(x,y).value()
+            Type.BOOL, x.value() != y.value()
         )
         self.op_to_lambda[Type.INT]["<"] = lambda x, y: Value(
             Type.BOOL, x.value() < y.value()
@@ -354,7 +338,6 @@ class Interpreter(InterpreterBase):
         self.op_to_lambda[Type.INT][">="] = lambda x, y: Value(
             Type.BOOL, x.value() >= y.value()
         )
-
         #  set up operations on strings
         self.op_to_lambda[Type.STRING] = {}
         self.op_to_lambda[Type.STRING]["+"] = lambda x, y: Value(
@@ -366,65 +349,49 @@ class Interpreter(InterpreterBase):
         self.op_to_lambda[Type.STRING]["!="] = lambda x, y: Value(
             Type.BOOL, x.value() != y.value()
         )
-
         #  set up operations on bools
         self.op_to_lambda[Type.BOOL] = {}
         self.op_to_lambda[Type.BOOL]["&&"] = lambda x, y: Value(
-            self.__do_coerce_bool(x).type(),self.__do_coerce_bool(x).value() and self.__do_coerce_bool(y).value()
+            x.type(), x.value() and y.value()
         )
         self.op_to_lambda[Type.BOOL]["||"] = lambda x, y: Value(
-            self.__do_coerce_bool(x).type(), self.__do_coerce_bool(x).value() or self.__do_coerce_bool(y).value()
+            x.type(), x.value() or y.value()
         )
         self.op_to_lambda[Type.BOOL]["=="] = lambda x, y: Value(
-            Type.BOOL, self.__do_coerce_bool(x).type() == self.__do_coerce_bool(y).type() and self.__do_coerce_bool(x).value() == self.__do_coerce_bool(y).value()
+            Type.BOOL, x.value() == y.value()
         )
         self.op_to_lambda[Type.BOOL]["!="] = lambda x, y: Value(
-            Type.BOOL, self.__do_coerce_bool(x).type() != self.__do_coerce_bool(y).type() or self.__do_coerce_bool(x).value() != self.__do_coerce_bool(y).value()
+            Type.BOOL, x.value() != y.value()
         )
-        self.op_to_lambda[Type.BOOL]["+"] = lambda x,y : Value(
-            Type.INT, self.__add_bools(x,y)
-        )
-        self.op_to_lambda[Type.BOOL]["-"] = lambda x,y : Value(
-            Type.INT, self.__sub_bools(x,y)
-        )
-        self.op_to_lambda[Type.BOOL]["*"] = lambda x,y : Value(
-            Type.INT, self.__mult_bools(x,y)
-        )
-        self.op_to_lambda[Type.BOOL]["/"] = lambda x,y : Value(
-            Type.INT, self.__div_bools(x,y)
-        )
+
         #  set up operations on nil
         self.op_to_lambda[Type.NIL] = {}
         self.op_to_lambda[Type.NIL]["=="] = lambda x, y: Value(
-            Type.BOOL, x.type() == y.type() and x.value() == y.value()
+            Type.BOOL, x.value() == y.value()
         )
         self.op_to_lambda[Type.NIL]["!="] = lambda x, y: Value(
-            Type.BOOL, x.type() != y.type() or x.value() != y.value()
+            Type.BOOL, x.value() != y.value()
         )
 
-        self.op_to_lambda[Type.LAMBDA] = {}
-        self.op_to_lambda[Type.LAMBDA]["=="] = lambda x,y : Value(
-            Type.BOOL, self.__check_eq_lambda(x,y)
+        #  set up operations on closures
+        self.op_to_lambda[Type.CLOSURE] = {}
+        self.op_to_lambda[Type.CLOSURE]["=="] = lambda x, y: Value(
+            Type.BOOL, x.value() == y.value()
         )
-        self.op_to_lambda[Type.LAMBDA]["!="] = lambda x,y : Value(
-            Type.BOOL, not self.__check_eq_lambda(x,y)
+        self.op_to_lambda[Type.CLOSURE]["!="] = lambda x, y: Value(
+            Type.BOOL, x.value() != y.value()
         )
 
     def __do_if(self, if_ast):
         cond_ast = if_ast.get("condition")
         result = self.__eval_expr(cond_ast)
+        if result.type() == Type.INT:
+            result = Interpreter.__int_to_bool(result)
         if result.type() != Type.BOOL:
-            #Integer type coercion
-            if result.type() == Type.INT:
-                if result.value() == 0:
-                    result = Value(Type.BOOL, False)
-                else:
-                    result = Value(Type.BOOL, True)
-            else:
-                super().error(
-                    ErrorType.TYPE_ERROR,
-                    "Incompatible type for if condition",
-                )
+            super().error(
+                ErrorType.TYPE_ERROR,
+                "Incompatible type for if condition",
+            )
         if result.value():
             statements = if_ast.get("statements")
             status, return_val = self.__run_statements(statements)
@@ -442,18 +409,13 @@ class Interpreter(InterpreterBase):
         run_while = Interpreter.TRUE_VALUE
         while run_while.value():
             run_while = self.__eval_expr(cond_ast)
+            if run_while.type() == Type.INT:
+                run_while = Interpreter.__int_to_bool(run_while)
             if run_while.type() != Type.BOOL:
-                #integer type coercion
-                if run_while.type() == Type.INT:
-                    if run_while.value() == 0:
-                        run_while = Value(Type.BOOL, False)
-                    else:
-                        run_while = Value(Type.BOOL, True)
-                else:
-                    super().error(
-                        ErrorType.TYPE_ERROR,
-                        "Incompatible type for while condition",
-                    )
+                super().error(
+                    ErrorType.TYPE_ERROR,
+                    "Incompatible type for while condition",
+                )
             if run_while.value():
                 statements = while_ast.get("statements")
                 status, return_val = self.__run_statements(statements)
@@ -468,96 +430,3 @@ class Interpreter(InterpreterBase):
             return (ExecStatus.RETURN, Interpreter.NIL_VALUE)
         value_obj = copy.deepcopy(self.__eval_expr(expr_ast))
         return (ExecStatus.RETURN, value_obj)
-
-    def __do_coerce_bool(self, result):
-        if result.type() == Type.BOOL:
-            return result
-        elif result.type() == Type.INT:
-            if result.value() == 0:
-                return Value(Type.BOOL, False)
-            else:
-                return Value(Type.BOOL, True)
-        else:
-            return result
-        
-    def __do_coerce_int(self, result):
-        if result.type() == Type.INT:
-            return result
-        elif result.type() == Type.BOOL:
-            if result.value() == True or result.value() == InterpreterBase.TRUE_DEF:
-                return Value(Type.INT, 1)
-            else:
-                return Value(Type.INT, 0)
-        else:
-            return result
-
-    def __do_coerce_int_bool(self, x, y):
-        if y.type() == Type.BOOL:
-            return self.__do_coerce_bool(x)
-        else:
-            return x
-
-    def __add_bools(self, x, y):
-        if x.type() == Type.BOOL and y.type() == Type.BOOL:
-            sum = self.__do_coerce_int(x).value() + self.__do_coerce_bool(y).value()
-            return sum
-        elif x.type() == Type.BOOL and y.type() == Type.INT:
-            sum = y.value() + self.__do_coerce_bool(x).value()
-            return sum
-        elif y.type() == Type.BOOL and x.type() == Type.INT:
-            sum = x.value() + self.__do_coerce_bool(y).value()
-            return sum
-        else:
-            super().error(ErrorType.TYPE_ERROR)
-    
-    def __sub_bools(self, x, y):
-        if x.type() == Type.BOOL and y.type() == Type.BOOL:
-            sum = self.__do_coerce_int(x).value() - self.__do_coerce_bool(y).value()
-            return sum
-
-        elif x.type() == Type.BOOL and y.type() == Type.INT:
-            sum = self.__do_coerce_bool(x).value() - y.value()
-            return sum
-        elif y.type() == Type.BOOL and x.type() == Type.INT:
-            sum = x.value() - self.__do_coerce_bool(y).value()
-            return sum
-        else:
-            super().error(ErrorType.TYPE_ERROR)
-
-    def __mult_bools(self, x, y):
-        if x.type() == Type.BOOL and y.type() == Type.BOOL:
-            sum = self.__do_coerce_int(x).value() * self.__do_coerce_bool(y).value()
-            return sum
-        elif x.type() == Type.BOOL and y.type() == Type.INT:
-            sum = self.__do_coerce_bool(x).value() * y.value()
-            return sum
-        elif y.type() == Type.BOOL and x.type() == Type.INT:
-            sum = x.value() * self.__do_coerce_bool(y).value()
-            return sum
-        else:
-            super().error(ErrorType.TYPE_ERROR)
-
-    def __div_bools(self, x, y):
-        if x.type() == Type.BOOL and y.type() == Type.BOOL:
-            sum = self.__do_coerce_int(x).value() // self.__do_coerce_bool(y).value()
-            return sum
-        elif x.type() == Type.BOOL and y.type() == Type.INT:
-            sum = self.__do_coerce_bool(x).value() // y.value()
-            return sum
-        elif y.type() == Type.BOOL and x.type() == Type.INT:
-            sum = x.value() // self.__do_coerce_bool(y).value()
-            return sum
-        else:
-            super().error(ErrorType.TYPE_ERROR)
-
-    def __check_eq_lambda(self, x, y):
-        if x.type() == y.type():
-            if len(x.get("args")) == len(y.get("args")):
-                for statementx, statementy in zip(x.get("statements"), y.get("statements")):
-                    if statementx.elem_type != statementy.elem_type or statementx.dict != statementy.dict:
-                        return False
-                return True
-            else:
-                return False
-        else:
-            return False
