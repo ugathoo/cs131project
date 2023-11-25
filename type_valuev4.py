@@ -62,11 +62,14 @@ class Object:
         return proto.get_method(method_name, num_args)
     
     def check_proto_field(self, field_name, proto):
-        
         if proto == InterpreterBase.NIL_DEF:
             return None
         
         proto = proto.value()
+
+        if proto == InterpreterBase.NIL_DEF:
+            return None
+
         return proto.get_field(field_name)
 
 # Represents a value, which has a type and its value

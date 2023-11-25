@@ -232,7 +232,9 @@ class Interpreter(InterpreterBase):
                 object.set_method(field_name, num_args, closure) #set appropriate method
             else:
                 if field_name == "proto":
-                    if self.__eval_expr(assign_ast.get("expression")).type() is not Type.OBJECT:
+                    print(self.__eval_expr(assign_ast.get("expression")).type())
+                    print(self.__eval_expr(assign_ast.get("expression")).value())
+                    if self.__eval_expr(assign_ast.get("expression")).type() is not Type.OBJECT and self.__eval_expr(assign_ast.get("expression")).type() is not Type.NIL and self.__eval_expr(assign_ast.get("expression")).value() is not InterpreterBase.NIL_DEF:
                         super().error(ErrorType.TYPE_ERROR, f"Object {obj_name} proto being set to non-object type.")
                     object.set_proto(self.__eval_expr(assign_ast.get("expression")))
                 else:
@@ -283,6 +285,13 @@ class Interpreter(InterpreterBase):
             object = self.env.get(obj_name).value() #Object object
             if object is None:
                 super().error(ErrorType.NAME_ERROR, f"Object {obj_name} not found")
+            
+            if self.env.get(obj_name).type() != Type.OBJECT:
+                    super().error(ErrorType.TYPE_ERROR, f"Object {obj_name} being accessed is not an object.")
+            
+            if field_name == "proto":
+                return object.get_proto()
+            
             field = object.get_field(field_name) #Value object
             if field is None:
                 super().error(ErrorType.NAME_ERROR, f"Field {field_name} not found")
@@ -450,6 +459,15 @@ class Interpreter(InterpreterBase):
             Type.BOOL, x.value() == y.value()
         )
         self.op_to_lambda[Type.CLOSURE]["!="] = lambda x, y: Value(
+            Type.BOOL, x.value() != y.value()
+        )
+
+        #  set up operations on objects
+        self.op_to_lambda[Type.OBJECT] = {}
+        self.op_to_lambda[Type.OBJECT]["=="] = lambda x, y: Value(
+            Type.BOOL, x.value() == y.value()
+        )
+        self.op_to_lambda[Type.OBJECT]["!="] = lambda x, y: Value(
             Type.BOOL, x.value() != y.value()
         )
 
