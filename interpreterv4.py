@@ -129,6 +129,8 @@ class Interpreter(InterpreterBase):
             obj = obj.value() #Object object
             target_closure = obj.get_method(call_ast.get("name"), len(call_ast.get("args"))) #Closure object
             if target_closure is None:
+                if obj.get_field(call_ast.get("name")) is not None:
+                    super().error(ErrorType.TYPE_ERROR, f"Field {call_ast.get('name')} is not a method")
                 super().error(ErrorType.NAME_ERROR, f"Method {call_ast.get('name')} not found")
                     
         if not is_method:
@@ -290,9 +292,13 @@ class Interpreter(InterpreterBase):
                     super().error(ErrorType.TYPE_ERROR, f"Object {obj_name} being accessed is not an object.")
             
             if field_name == "proto":
-                return object.get_proto()
+                val = object.get_proto()
+                if val == InterpreterBase.NIL_DEF:
+                    super().error(ErrorType.NAME_ERROR, f"Object {obj_name} proto not found")
+                return val
             
             field = object.get_field(field_name) #Value object
+            
             if field is None:
                 super().error(ErrorType.NAME_ERROR, f"Field {field_name} not found")
             return field
