@@ -115,12 +115,9 @@ class Interpreter(InterpreterBase):
     def __call_func(self, call_ast):
         is_method = (call_ast.elem_type == Interpreter.MCALL_DEF)
         if call_ast.elem_type == Interpreter.MCALL_DEF:
-            print("hit")
-            print(call_ast)
+
             object = call_ast.get("objref") #NEEDS TO RETURN A VALUE OBJECT
-            print(object)
             obj = self.env.get(object) #Value object of (Type.OBJECT, Object object)
-            print(obj)
             if obj is None:
                 super().error(ErrorType.NAME_ERROR, f"Object {object} not found")
             
@@ -128,15 +125,12 @@ class Interpreter(InterpreterBase):
                 super().error(
                     ErrorType.TYPE_ERROR, "Trying to call method on non-object"
                 )
+            self.env.set("this", obj) #Value object of (Type.OBJECT, Object object)
             obj = obj.value() #Object object
-            print(obj)
-            print(obj.methods)
             target_closure = obj.get_method(call_ast.get("name"), len(call_ast.get("args"))) #Closure object
             if target_closure is None:
                 super().error(ErrorType.NAME_ERROR, f"Method {call_ast.get('name')} not found")
-            
-            print(type(target_closure))
-        
+                    
         if not is_method:
             func_name = call_ast.get("name")
             if func_name == "print":
@@ -221,11 +215,12 @@ class Interpreter(InterpreterBase):
             obj_name = var_name.split(".")[0]
             field_name = var_name.split(".")[1]
             #print(obj_name, field_name)
-            self.env.set("this", obj_name)
             object = self.env.get(obj_name) #Value object of (Type.OBJECT, Object object)
-            print(object)
+            #print("THIS SHOULD BE A VALUE OBJECT")
+            #print(object)
             if object is None:
                 super().error(ErrorType.NAME_ERROR, f"Object {obj_name} not found")
+            
             object = object.value() #Object object
             
             if self.__eval_expr(assign_ast.get("expression")).type() is Type.CLOSURE: #is a function
@@ -233,7 +228,7 @@ class Interpreter(InterpreterBase):
                 closure = closure.value() #Closure object
                 function_ast = closure.func_ast #AST node of function definition
                 num_args = len(function_ast.get("args")) #int
-                print("SETTING METHOD")
+                #print("SETTING METHOD")
                 object.set_method(field_name, num_args, closure) #set appropriate method
             else:
                 if field_name == "proto":
@@ -281,21 +276,18 @@ class Interpreter(InterpreterBase):
 
     def __eval_name(self, name_ast):
         var_name = name_ast.get("name")
-        print(var_name)
         if var_name.find(".") != -1:
             #IS AN OBJECT
             obj_name = var_name.split(".")[0]
             field_name = var_name.split(".")[1]
-            print(obj_name, field_name)
             object = self.env.get(obj_name).value() #Object object
-            print(object)
             if object is None:
                 super().error(ErrorType.NAME_ERROR, f"Object {obj_name} not found")
             field = object.get_field(field_name) #Value object
-            print(field)
             if field is None:
                 super().error(ErrorType.NAME_ERROR, f"Field {field_name} not found")
             return field
+        
         val = self.env.get(var_name)
         if val is not None:
             return val
