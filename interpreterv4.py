@@ -216,10 +216,8 @@ class Interpreter(InterpreterBase):
             #THIS IS AN OBJECT
             obj_name = var_name.split(".")[0]
             field_name = var_name.split(".")[1]
-            #print(obj_name, field_name)
             object = self.env.get(obj_name) #Value object of (Type.OBJECT, Object object)
-            #print("THIS SHOULD BE A VALUE OBJECT")
-            #print(object)
+            
             if object is None:
                 super().error(ErrorType.NAME_ERROR, f"Object {obj_name} not found")
             
@@ -230,12 +228,9 @@ class Interpreter(InterpreterBase):
                 closure = closure.value() #Closure object
                 function_ast = closure.func_ast #AST node of function definition
                 num_args = len(function_ast.get("args")) #int
-                #print("SETTING METHOD")
                 object.set_method(field_name, num_args, closure) #set appropriate method
             else:
                 if field_name == "proto":
-                    print(self.__eval_expr(assign_ast.get("expression")).type())
-                    print(self.__eval_expr(assign_ast.get("expression")).value())
                     if self.__eval_expr(assign_ast.get("expression")).type() is not Type.OBJECT and self.__eval_expr(assign_ast.get("expression")).type() is not Type.NIL and self.__eval_expr(assign_ast.get("expression")).value() is not InterpreterBase.NIL_DEF:
                         super().error(ErrorType.TYPE_ERROR, f"Object {obj_name} proto being set to non-object type.")
                     object.set_proto(self.__eval_expr(assign_ast.get("expression")))

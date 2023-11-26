@@ -2,6 +2,7 @@ import copy
 
 from enum import Enum
 from intbase import InterpreterBase
+from env_v4 import EnvironmentManager
 
 
 # Enumerated type for our different language data types
@@ -16,9 +17,20 @@ class Type(Enum):
 
 class Closure:
     def __init__(self, func_ast, env):
-        self.captured_env = copy.deepcopy(env)
+        self.captured_env = EnvironmentManager()
+        for environm in env.environment:
+            enviro = {}
+            for var_name, value in environm.items():
+                if value.type() == Type.CLOSURE or value.type() == Type.OBJECT:
+                    enviro[var_name] = value
+                else:
+                    enviro[var_name] = copy.deepcopy(value)
+            self.captured_env.push(enviro)
         self.func_ast = func_ast
         self.type = Type.CLOSURE
+
+        
+    
 
 class Object:
     def __init__(self, env):
