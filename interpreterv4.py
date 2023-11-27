@@ -125,7 +125,7 @@ class Interpreter(InterpreterBase):
                 super().error(
                     ErrorType.TYPE_ERROR, "Trying to call method on non-object"
                 )
-            self.env.set("this", obj) #Value object of (Type.OBJECT, Object object)
+            #self.env.set("this", obj) #Value object of (Type.OBJECT, Object object)
             obj = obj.value() #Object object
             target_closure = obj.get_method(call_ast.get("name"), len(call_ast.get("args"))) #Closure object
             if target_closure is None:
@@ -159,6 +159,9 @@ class Interpreter(InterpreterBase):
         self.__prepare_env_with_closed_variables(target_closure, new_env) #add closed variables to new_env
         self.__prepare_params(target_ast,call_ast, new_env)  #add parameters to new_env  
         self.env.push(new_env) #add new_env to list of dicts
+        if is_method:
+            self.env.set("this", self.env.get(object), force_new_var_creation = True) #Value object of (Type.OBJECT, Object object)
+
         _, return_val = self.__run_statements(target_ast.get("statements")) #returns (status, return_val) of (Continue and NIL)
         self.env.pop() #remove new_env from list of dicts
         return return_val #Value object
