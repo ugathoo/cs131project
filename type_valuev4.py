@@ -100,15 +100,17 @@ class Object:
         print(proto)
         if proto == InterpreterBase.NIL_DEF:
             return None
-
+        elif proto == None:
+            return None
+        
         print("proto get field")
-        print(proto.get_field(field_name))
         thing = proto.get_field(field_name)
         if thing == None:
             print("thing is none")
             return None
         else:
             print("thing is not none")
+            #print(thing.get_field(field_name))
             return thing
 
 # Represents a value, which has a type and its value
@@ -133,12 +135,12 @@ def create_value(val):
         return Value(Type.BOOL, True)
     elif val == InterpreterBase.FALSE_DEF:
         return Value(Type.BOOL, False)
-    elif isinstance(val, str):
-        return Value(Type.STRING, val)
     elif isinstance(val, int):
         return Value(Type.INT, val)
     elif val == InterpreterBase.NIL_DEF:
         return Value(Type.NIL, None)
+    elif isinstance(val, str):
+        return Value(Type.STRING, val)
     else:
         raise ValueError("Unknown value type")
 
