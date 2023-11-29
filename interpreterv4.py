@@ -125,9 +125,17 @@ class Interpreter(InterpreterBase):
                 super().error(
                     ErrorType.TYPE_ERROR, "Trying to call method on non-object"
                 )
+            
             #self.env.set("this", obj) #Value object of (Type.OBJECT, Object object)
             obj = obj.value() #Object object
+            
+            if not isinstance(obj, Object):
+                super().error(
+                    ErrorType.TYPE_ERROR, "Trying to call method on non-object"
+                )
+            
             target_closure = obj.get_method(call_ast.get("name"), len(call_ast.get("args"))) #Closure object
+            
             if target_closure is None:
                 if obj.get_field(call_ast.get("name")) is not None:
                     super().error(ErrorType.TYPE_ERROR, f"Field {call_ast.get('name')} is not a method")
@@ -224,6 +232,11 @@ class Interpreter(InterpreterBase):
             if object is None:
                 super().error(ErrorType.NAME_ERROR, f"Object {obj_name} not found")
             
+            if object.type() != Type.OBJECT:
+                super().error(
+                    ErrorType.TYPE_ERROR, "Trying to assign to field of non-object"
+                )
+
             object = object.value() #Object object
             
             if self.__eval_expr(assign_ast.get("expression")).type() is Type.CLOSURE: #is a function
@@ -232,6 +245,7 @@ class Interpreter(InterpreterBase):
                 function_ast = closure.func_ast #AST node of function definition
                 num_args = len(function_ast.get("args")) #int
                 object.set_method(field_name, num_args, closure) #set appropriate method
+            
             else:
                 if field_name == "proto":
                     if self.__eval_expr(assign_ast.get("expression")).type() is not Type.OBJECT and self.__eval_expr(assign_ast.get("expression")).type() is not Type.NIL and self.__eval_expr(assign_ast.get("expression")).value() is not InterpreterBase.NIL_DEF:

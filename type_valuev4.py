@@ -29,8 +29,6 @@ class Closure:
         self.func_ast = func_ast
         self.type = Type.CLOSURE
 
-        
-    
 
 class Object:
     def __init__(self, env):
@@ -41,19 +39,36 @@ class Object:
         self.type = Type.OBJECT
 
     def get_field(self, field_name):
-        if field_name in self.fields:
+        if self == None or self == InterpreterBase.NIL_DEF:
+            return None
+        
+        print(self.fields.keys())
+        print(field_name)
+        if field_name in self.fields.keys():
+            print("field name in fields")
+            print(self.fields[field_name])
             return self.fields[field_name]
-        return self.check_proto_field(field_name, self.proto)
+        else:
+            if self.proto == InterpreterBase.NIL_DEF:
+                return None
+                
+            return self.check_proto_field(field_name)
     
     def set_field(self, field_name, value):
         self.fields[field_name] = value
 
     def get_method(self, method_name, num_args):
+        if self == None:
+            return None
         if method_name in self.methods:
             if num_args in self.methods[method_name]:
                 return self.methods[method_name][num_args] # returns a closure
+            elif method_name in self.fields:
+                return None
             else:
                 return self.check_proto_method(method_name, num_args, self.proto)
+        elif method_name in self.fields:
+                return None
         return self.check_proto_method(method_name, num_args, self.proto)
     
     def set_method(self, method_name, num_args, value):
@@ -73,16 +88,28 @@ class Object:
         proto = proto.value()
         return proto.get_method(method_name, num_args)
     
-    def check_proto_field(self, field_name, proto):
+    def check_proto_field(self, field_name):
+        proto = self.get_proto()
+        print("check proto field")
+        print(proto)
         if proto == InterpreterBase.NIL_DEF:
             return None
-        
+    
         proto = proto.value()
-
+        print("proto value")
+        print(proto)
         if proto == InterpreterBase.NIL_DEF:
             return None
 
-        return proto.get_field(field_name)
+        print("proto get field")
+        print(proto.get_field(field_name))
+        thing = proto.get_field(field_name)
+        if thing == None:
+            print("thing is none")
+            return None
+        else:
+            print("thing is not none")
+            return thing
 
 # Represents a value, which has a type and its value
 class Value:
